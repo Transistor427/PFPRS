@@ -29,6 +29,15 @@ sudo cp -r ./* ~/printer_data/config/klipper-config/pfprs
 Соглашаемся с рисками (y).
 Отказываемся от создания файла-примера (n). 
 
+## Настройка конфигурационных файлов
+Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro START_PRINT]
+
+Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro END_PRINT]
+
+
 ## Настройка слайсера
 При смене слоев нужно добавить макрос `_LOG_Z`.
 ![изображение](https://github.com/user-attachments/assets/6b2c2790-d9e0-4363-9f62-3de80d8da48d)
+
+## Описание процесса работы
+После запуска g-кода каждый раз при смене слоя вызывается макрос `_LOG_Z`, который сохраняет  
