@@ -8,7 +8,7 @@ cd ~
 git clone https://github.com/Transistor427/PFPRS/
 cd PFPRS
 sudo chmod 777 pfprs.sh
-cp -r ./* ~/printer_data/config/klipper-config
+sudo cp -r ./* ~/printer_data/config/klipper-config
 ```
 
 Веб-интерфейс > Конфигурация > printer.cfg
@@ -16,6 +16,17 @@ cp -r ./* ~/printer_data/config/klipper-config
 ```
 [include klipper-config/pfprs.cfg]
 ```
+## Дополнительные действия
+```
+./kiauh-zb/kiauh.sh
+```
+Далее выбираем:
+```
+4) [Advanced]
+8) [G-Code Shell Command]
+```
+Соглашаемся с рисками (y).
+Отказываемся от создания файла-примера (n). 
 
 ## Настройка слайсера
 При смене слоев нужно добавить макрос `_LOG_Z`.
