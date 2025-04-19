@@ -8,17 +8,18 @@ cd ~
 git clone https://github.com/Transistor427/PFPRS/
 cd PFPRS
 sudo chmod 777 pfprs.sh
-sudo cp -r ./* ~/printer_data/config/klipper-config
+mkdir ~/printer_data/config/klipper-config/pfprs
+sudo cp -r ./* ~/printer_data/config/klipper-config/pfprs
 ```
 
 Веб-интерфейс > Конфигурация > printer.cfg
 
 ```
-[include klipper-config/pfprs.cfg]
+[include klipper-config/pfprs/pfprs.cfg]
 ```
 ## Дополнительные действия
 ```
-./kiauh-zb/kiauh.sh
+~/kiauh-zb/kiauh.sh
 ```
 Далее выбираем:
 ```
