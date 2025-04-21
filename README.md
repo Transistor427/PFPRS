@@ -40,6 +40,7 @@ SAVE_VARIABLE VARIABLE=was_interrupted VALUE=True
 
 Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro END_PRINT]
 ![изображение](https://github.com/user-attachments/assets/1285a067-926a-4fa8-86ad-836df7c23e1c)
+
 Добавляем в самое начало конечного g-кода строчку:
 ```
 SAVE_VARIABLE VARIABLE=was_interrupted VALUE=False
