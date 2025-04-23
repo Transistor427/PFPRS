@@ -31,6 +31,7 @@ sudo cp -r ./* ~/printer_data/config/klipper-config/pfprs
 
 ## Настройка конфигурационных файлов
 Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro START_PRINT]
+
 ![изображение](https://github.com/user-attachments/assets/661d21c9-7a97-4ff7-a899-07218cf9e807)
 
 Добавляем в самый конец стартового g-кода строчку:
@@ -39,6 +40,7 @@ SAVE_VARIABLE VARIABLE=was_interrupted VALUE=True
 ```
 
 Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro END_PRINT]
+
 ![изображение](https://github.com/user-attachments/assets/1285a067-926a-4fa8-86ad-836df7c23e1c)
 
 Добавляем в самое начало конечного g-кода строчку:
@@ -48,6 +50,7 @@ SAVE_VARIABLE VARIABLE=was_interrupted VALUE=False
 
 ## Настройка слайсера
 В слайсере в g-кодах принтера при смене слоев нужно добавить макрос `_LOG_Z`:
+
 ![изображение](https://github.com/user-attachments/assets/6b2c2790-d9e0-4363-9f62-3de80d8da48d)
 
 ## Описание процесса работы
