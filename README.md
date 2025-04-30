@@ -6,7 +6,7 @@
  ```
 cd ~
 git clone https://github.com/Transistor427/PFPRS/
-sudo chmod 777 ~/PFPRS/curr_layer.sh ~/PFPRS/next_layer.sh
+sudo chmod 777 ~/PFPRS/curr_layer.sh ~/PFPRS/next_layer.sh ~/PFPRS/prev_layer.sh 
 sudo ln -s ~/PFPRS ~/printer_data/config/klipper-config/pfprs
 ```
 
