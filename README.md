@@ -20,6 +20,7 @@ sudo ln -s ~/PFPRS ~/printer_data/config/klipper-config/pfprs
 ls ~/kiauh-zb/
 ```
 Если вывод такой, то выполним установку kiauh:
+
 ![изображение](https://github.com/user-attachments/assets/995b7dc1-649c-4e45-acb2-134fe3e76c1a)
 ```
 cd ~
@@ -27,6 +28,7 @@ git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.1
 ```
 Снова проверяем правильность kiauh.
 Если такой, то продолжаем дальше:
+
 ![изображение](https://github.com/user-attachments/assets/f725352f-541f-4ea9-a9e1-f5e6734637e4)
 
 ```
