@@ -67,9 +67,10 @@ SAVE_VARIABLE VARIABLE=was_interrupted VALUE=False
 ```
 
 ## Настройка OrcaSlicer
-В слайсере в g-кодах принтера при смене слоев нужно добавить макрос `_LOG_Z`:
+В слайсере в g-кодах принтера при смене слоев нужно добавить макрос `_LOG_Z Z={layer_z}`:
 
-![изображение](https://github.com/user-attachments/assets/6b2c2790-d9e0-4363-9f62-3de80d8da48d)
+![изображение](https://github.com/user-attachments/assets/83a0838e-9c76-4473-bb1b-b76fe62c9774)
+
 
 ## Алгоритм восстановления печати при тестах
 ### Подготовка
