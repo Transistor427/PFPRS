@@ -4,9 +4,7 @@
 
 ## Установка
  ```
-cd ~
-git clone https://github.com/Transistor427/PFPRS/
-sudo ln -s ~/PFPRS ~/printer_data/config/klipper-config/pfprs
+cd ~ && git clone https://github.com/Transistor427/PFPRS/ && sudo ln -s ~/PFPRS ~/printer_data/config/klipper-config/pfprs
 ```
 
 Веб-интерфейс > Конфигурация > printer.cfg
@@ -22,8 +20,7 @@ ls ~/kiauh-zb/
 
 ![изображение](https://github.com/user-attachments/assets/995b7dc1-649c-4e45-acb2-134fe3e76c1a)
 ```
-cd ~
-git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.1
+cd ~ && git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.1
 ```
 Снова проверяем правильность kiauh.
 Если такой, то продолжаем дальше:
