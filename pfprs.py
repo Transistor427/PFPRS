@@ -74,6 +74,11 @@ class PowerLossRecovery:
                 if self.debug_mode:
                     logging.info(f"PowerLossRecovery: Configured extruders: {self.extruders}")
             
+            # Get chamber heater configuration
+            self.chamber_heater_name = config.get('chamber_heater', '')
+            if self.debug_mode and self.chamber_heater_name:
+                logging.info(f"PowerLossRecovery: Configured chamber heater: {self.chamber_heater_name}")
+            
             # New configuration options for history
             self.history_size = config.getint('history_size', 5, minval=2, maxval=20)
             self.save_delay = config.getint('save_delay', 2, minval=0, 
@@ -132,6 +137,7 @@ class PowerLossRecovery:
         self.toolhead = None
         self.extruder = None
         self.heater_bed = None
+        self.heater_chamber = None
         self.last_layer = 0
         self.is_active = False
         self.last_save_time = 0
@@ -401,6 +407,36 @@ class PowerLossRecovery:
         except Exception as e:
             if self.debug_mode:
                 self._debug_log(f"Error restoring active extruder: {str(e)}")
+    
+    def _restore_chamber_temperature(self, state_data):
+        """Restore chamber temperature from saved state"""
+        try:
+            if not state_data or 'chamber_temp' not in state_data:
+                if self.debug_mode:
+                    self._debug_log("No chamber temperature data found in saved state")
+                return
+        
+            chamber_temp = state_data.get('chamber_temp', 0)
+            if chamber_temp <= 0:
+                if self.debug_mode:
+                    self._debug_log("Chamber temperature is 0 or negative, skipping restoration")
+                return
+                
+            if not self.chamber_heater_name:
+                if self.debug_mode:
+                    self._debug_log("No chamber heater configured")
+                return
+                
+            # Set chamber temperature
+            chamber_cmd = f"SET_HEATER_TEMPERATURE HEATER={self.chamber_heater_name} TARGET={chamber_temp}"
+            if self.debug_mode:
+                self._debug_log(f"Restoring chamber temperature: {chamber_cmd}")
+            
+            self.gcode.run_script_from_command(chamber_cmd)
+        
+        except Exception as e:
+            if self.debug_mode:
+                self._debug_log(f"Error restoring chamber temperature: {str(e)}")
                 
             
     cmd_PLR_Z_HOME_help = "Set Z axis height manually. MODE=CALIBRATE to save height, MODE=RESUME to use saved height"
@@ -496,6 +532,8 @@ class PowerLossRecovery:
                         self._restore_xyz_offsets(saved_state)
                         # Restore active extruder
                         self._restore_active_extruder(saved_state)
+                        # Restore chamber temperature
+                        self._restore_chamber_temperature(saved_state)
                 except Exception as e:
                     if self.debug_mode:
                         self._debug_log(f"Warning: Error restoring settings: {str(e)}")
@@ -546,6 +584,7 @@ class PowerLossRecovery:
             'save_time': {'type': (float, int)},
             'hotend_temp': {'type': (float, int)},
             'bed_temp': {'type': (float, int)},
+            'chamber_temp': {'type': (float, int)},
             'active_extruder': {'type': str}
         }
         
@@ -572,7 +611,7 @@ class PowerLossRecovery:
                             return False, f"Subfield {subfield} in {field} has wrong type"
                     else:
                         if not isinstance(state[field][subfield], subtype):
-                            return False, f"Subfield {subfield} in {field} has wrong type"
+                            return False, f"Subfield {subfield} in {field} has wrong type")
         
         # Verify logical constraints
         if state['file_progress']['total_size'] < 0:
@@ -590,6 +629,9 @@ class PowerLossRecovery:
             
         if not (-273.15 <= float(state['bed_temp']) <= 200):
             return False, "Bed temperature out of reasonable range"
+            
+        if not (-273.15 <= float(state['chamber_temp']) <= 100):
+            return False, "Chamber temperature out of reasonable range"
             
         # Verify active extruder is in configured list
         if state['active_extruder'] not in self.extruders:
@@ -672,6 +714,7 @@ class PowerLossRecovery:
                   extruder_status = self.extruder.get_status(eventtime)
                   toolhead_status = self.toolhead.get_status(eventtime)
                   heater_bed_status = self.heater_bed.get_status(eventtime) if self.heater_bed else {}
+                  heater_chamber_status = self.heater_chamber.get_status(eventtime) if self.heater_chamber else {}
                   
                   # Get fan speeds for configured part cooling fans
                   fan_speeds = {}
@@ -704,7 +747,8 @@ class PowerLossRecovery:
                   
                   # Get temperatures from the same timestamp
                   hotend_temp = extruder_status.get('temperature', 0)
-                  bed_temp = heater_bed_status.get('temperature', 0)
+                  bed_temp = heater_bed_status.get('temperature', 0) if self.heater_bed else 0
+                  chamber_temp = heater_chamber_status.get('temperature', 0) if self.heater_chamber else 0
                   
                   # Get current XYZ offsets
                   gcode_move = self.printer.lookup_object('gcode_move')
@@ -737,6 +781,7 @@ class PowerLossRecovery:
                       'active_extruder': extruder_status.get('active_extruder', 'extruder'),
                       'hotend_temp': round(float(hotend_temp), 1),
                       'bed_temp': round(float(bed_temp), 1),
+                      'chamber_temp': round(float(chamber_temp), 1),
                       'save_time': eventtime,
                       'current_file': current_file,
                       'collection_time': eventtime  # Add timestamp for verification
@@ -900,7 +945,7 @@ class PowerLossRecovery:
                     consecutive_failures = 0
                 else:
                     if self.debug_mode:
-                        logging.info("PowerLossRecоvery: Print ended - deactivating")
+                        logging.info("PowerLossRecovery: Print ended - deactivating")
             
             if self.is_active :
                 if not self.power_loss_recovery_enabled:
@@ -1019,6 +1064,16 @@ class PowerLossRecovery:
                 logging.info("save_variables not found. PowerLossRecovery will not save state.")
             elif self.debug_mode:
                 logging.info("PowerLossRecovery: Successfully connected to save_variables")
+            
+            # Try to get chamber heater if configured
+            if self.chamber_heater_name:
+                try:
+                    self.heater_chamber = self.printer.lookup_object(self.chamber_heater_name, None)
+                    if self.heater_chamber and self.debug_mode:
+                        logging.info(f"PowerLossRecovery: Found chamber heater: {self.chamber_heater_name}")
+                except Exception as e:
+                    if self.debug_mode:
+                        logging.info(f"PowerLossRecovery: Error getting chamber heater: {str(e)}")
         except Exception as e:
             logging.exception("Error during PowerLossRecovery connection")
             raise
@@ -1028,6 +1083,16 @@ class PowerLossRecovery:
             self.toolhead = self.printer.lookup_object('toolhead')
             self.extruder = self.printer.lookup_object('extruder')
             self.heater_bed = self.printer.lookup_object('heater_bed', None)
+            
+            # Try to get chamber heater if configured
+            if self.chamber_heater_name and not self.heater_chamber:
+                try:
+                    self.heater_chamber = self.printer.lookup_object(self.chamber_heater_name, None)
+                    if self.heater_chamber and self.debug_mode:
+                        logging.info(f"PowerLossRecovery: Found chamber heater: {self.chamber_heater_name}")
+                except Exception as e:
+                    if self.debug_mode:
+                        logging.info(f"PowerLossRecovery: Error getting chamber heater: {str(e)}")
             
             if self.debug_mode:
                 logging.info("PowerLossRecovery: Ready state - starting background task")
@@ -1087,7 +1152,9 @@ class PowerLossRecovery:
                         saved_data.get('position', {}).get('y', 0),
                         saved_data.get('position', {}).get('z', 0)
                     ),
-                    f"Temperatures - Hotend: {saved_data.get('hotend_temp', 0):.1f}°C, Bed: {saved_data.get('bed_temp', 0):.1f}°C",
+                    f"Temperatures - Hotend: {saved_data.get('hotend_temp', 0):.1f}°C, " +
+                    f"Bed: {saved_data.get('bed_temp', 0):.1f}°C, " +
+                    f"Chamber: {saved_data.get('chamber_temp', 0):.1f}°C",
                     f"Active Extruder: {saved_data.get('active_extruder', 'unknown')}"
                 ])
         except Exception as e:
@@ -1136,7 +1203,7 @@ class PowerLossRecovery:
             profile_name = status.get('profile_name')
             
             if not profile_name:
-                raise self.prriter.command_error("No bed mesh profile currently active")
+                raise self.printer.command_error("No bed mesh profile currently active")
                 
             # Convert profile name to JSON string to handle literals properly
             save_cmd = self.gcode.create_gcode_command(
@@ -1181,7 +1248,7 @@ class PowerLossRecovery:
             if profile_name not in profiles:
                 raise self.printer.command_error(f"Profile '{profile_name}' not found in bed_mesh profiles")
             
-            load_cmd = f"BED_MESH_PROFILE LOAD='{profile_name}'"
+            load_cmd = f"BED_MESH_PROLOAD='{profile_name}'"
             self.gcode.run_script_from_command(load_cmd)
             
             if self.debug_mode:
@@ -1310,7 +1377,8 @@ class PowerLossRecovery:
                     f"Created and started power loss recovery file: {basename}",
                     f"Original file: {current_file}",
                     f"Resume position: {file_position} ({file_progress.get('progress_pct', 0):.1f}%)",
-                    f"Active extruder: {state_data.get('active_extruder', 'unknown')}"
+                    f"Active extruder: {state_data.get('active_extruder', 'unknown')}",
+                    f"Chamber temperature: {state_data.get('chamber_temp', 0):.1f}°C"
                 ]
                 gcmd.respond_info("\n".join(msg))
                 
@@ -1350,6 +1418,16 @@ class PowerLossRecovery:
                     self._debug_log(f"PowerLossRecovery: Could not find active extruder in saved state: {e}")
                 active_extruder = 'extruder'  # Default to first extruder
             
+            # Extract chamber temperature from saved state
+            try:
+                chamber_temp = saved_state['chamber_temp']
+                if self.debug_mode:
+                    self._debug_log(f"PowerLossRecovery: Found saved chamber temperature: {chamber_temp}")
+            except KeyError as e:
+                if self.debug_mode:
+                    self._debug_log(f"PowerLossRecovery: Could not find chamber temperature in saved state: {e}")
+                chamber_temp = 0
+            
             # Get file paths
             base_name, ext = os.path.splitext(input_file)
             backup_file = f"{base_name}{ext}.plr"
@@ -1367,141 +1445,57 @@ class PowerLossRecovery:
             if self.debug_mode:
                 self._debug_log(f"PowerLossRecovery: Modifying {input_file} to resume from position {file_position}")
             
-            # Define placeholder texts
-            SETUP_PLACEHOLDER = ";;;;; PLR_RESUME - INITIAL PRINTER SETUP STARTS ;;;;;"
-            GCODE_PLACEHOLDER = ";;;;; PLR_RESUME - PRINT GCODE STARTS ;;;;;"
+            # Define placeholder text
+            PLACEHOLDER = ";;;;; PLR_RESUME - PRINT GCODE STARTS ;;;;;"
             
-            # Track state
-            found_setup = False
-            found_gcode_start = False
+            found_placeholder = False
             current_position = 0
-            last_layer_z = None
-            
-            # Buffer to track potential layer change block
-            layer_block_lines = []
-            in_layer_block = False
             
             with open(backup_file, 'r') as infile, open(input_file, 'w') as outfile:
-                in_setup_section = False
-                in_comment_block = False
-                in_executable_block = False
-                comment_buffer = []
+                # Write restart G-code at the beginning of the file
+                if self.restart_gcode_lines:
+                    if self.debug_mode:
+                        self._debug_log(f"Writing {len(self.restart_gcode_lines)} restart G-code lines")
+                    
+                    # Write extruder activation
+                    extruder_cmd = f"ACTIVATE_EXTRUDER EXTRUDER={active_extruder}\n"
+                    if self.debug_mode:
+                        self._debug_log(f"Writing extruder activation: {extruder_cmd}")
+                    outfile.write(extruder_cmd)
+                    
+                    # Write chamber temperature if > 0
+                    if chamber_temp > 0 and self.chamber_heater_name:
+                        chamber_cmd = f"SET_HEATER_TEMPERATURE HEATER={self.chamber_heater_name} TARGET={chamber_temp}\n"
+                        if self.debug_mode:
+                            self._debug_log(f"Writing chamber temperature: {chamber_cmd}")
+                        outfile.write(chamber_cmd)
+                    
+                    # Write Z restoration
+                    z_restore_gcode = f"G1 Z{saved_z:.3f} F3000 ; Restore Z height\n"
+                    if self.debug_mode:
+                        self._debug_log(f"Writing Z restore: {z_restore_gcode}")
+                    outfile.write(z_restore_gcode)
+                    
+                    # Write all other restart G-code lines
+                    for gcode_line in self.restart_gcode_lines:
+                        if self.debug_mode:
+                            self._debug_log(f"Writing line: {repr(gcode_line)}")
+                        outfile.write(f"{gcode_line}\n")
                 
+                # Write placeholder
+                outfile.write(f"{PLACEHOLDER}\n")
+                
+                # Copy content from original file starting from the resume position
                 for line in infile:
                     current_position += len(line)
-                    stripped_line = line.strip()
                     
-                    # Check for executable block start/end
-                    if "; EXECUTABLE_BLOCK_START" in line:
-                        in_executable_block = True
-                        outfile.write(line)
-                        continue
-                    elif "; EXECUTABLE_BLOCK_END" in line:
-                        in_executable_block = False
-                        outfile.write(line)
-                        continue
-                        
-                    # Track layer change blocks before resume position
+                    # Skip everything before the resume position
                     if current_position < file_position:
-                        if stripped_line == ";LAYER_CHANGE":
-                            in_layer_block = True
-                            layer_block_lines = [line]
-                        elif in_layer_block:
-                            layer_block_lines.append(line)
-                            if stripped_line.startswith(";Z:"):
-                                try:
-                                    last_layer_z = float(stripped_line[3:])
-                                except ValueError:
-                                    pass
-                            elif not stripped_line.startswith(";"):
-                                in_layer_block = False
-                                layer_block_lines = []
+                        continue
                     
-                    # Handle comment blocks, but not if we're in an executable block
-                    if not in_executable_block:
-                        if not in_comment_block and stripped_line.startswith(';') and not stripped_line.startswith(';;'):
-                            in_comment_block = True
-                            comment_buffer = [line]
-                            continue
-                        elif in_comment_block:
-                            if stripped_line.startswith(';'):
-                                comment_buffer.append(line)
-                                continue
-                            else:
-                                in_comment_block = False
-                                for comment_line in comment_buffer:
-                                    outfile.write(comment_line)
-                                comment_buffer = []
-                    
-                    # Process placeholders if we're not in a comment block or we're in an executable block
-                    if not in_comment_block or in_executable_block:
-                        if SETUP_PLACEHOLDER in line:
-                            found_setup = True
-                            in_setup_section = True
-                            # Write setup placeholder
-                            outfile.write(line)
-                            
-                            # Write restart gcode
-                            if self.restart_gcode_lines:
-                                if self.debug_mode:
-                                    self._debug_log(f"Writing {len(self.restart_gcode_lines)} restart G-code lines")
-                                for gcode_line in self.restart_gcode_lines:
-                                    if self.debug_mode:
-                                        self._debug_log(f"Writing line: {repr(gcode_line)}")
-                                    outfile.write(f"{gcode_line}\n")
-                                
-                                # Add extruder activation
-                                extruder_cmd = f"ACTIVATE_EXTRUDER EXTRUDER={active_extruder}\n"
-                                if self.debug_mode:
-                                    self._debug_log(f"Writing extruder activation: {extruder_cmd}")
-                                outfile.write(extruder_cmd)
-                                
-                                # Add Z restoration based on last layer height
-                                z_height = last_layer_z if last_layer_z is not None else saved_z
-                                z_restore_gcode = f"G1 Z{z_height:.3f} F3000 ; Restore Z height from last layer"
-                                if self.debug_mode:
-                                    self._debug_log(f"Writing Z restore: {z_restore_gcode}")
-                                    if last_layer_z is not None:
-                                        self._debug_log(f"Using last layer Z height: {last_layer_z}")
-                                    else:
-                                        self._debug_log(f"Using saved Z position: {saved_z}")
-                                outfile.write(f"{z_restore_gcode}\n")
-                            
-                            # Write gcode placeholder immediately after
-                            outfile.write(f"{GCODE_PLACEHOLDER}\n")
-                            found_gcode_start = True
-                            in_setup_section = False
-                            continue
-                        elif GCODE_PLACEHOLDER in line:
-                            # Skip the original GCODE_PLACEHOLDER since we already wrote it
-                            continue
-                    
-                    # Handle non-setup sections and other lines
-                    if not found_setup:
-                        outfile.write(line)
-                    elif found_gcode_start:
-                        if current_position >= file_position:
-                            outfile.write(line)
-                    elif in_executable_block:
-                        # Write lines in executable blocks before setup
-                        outfile.write(line)
-                    elif in_comment_block and not in_setup_section:
-                        # Write comment lines as-is if not in setup section
-                        outfile.write(line)
-                    
-                # Write any remaining comment buffer at EOF
-                if comment_buffer:
-                    for line in comment_buffer:
-                        outfile.write(line)
+                    # Write everything after the resume position
+                    outfile.write(line)
             
-            if not (found_setup and found_gcode_start):
-                if self.debug_mode:
-                    self._debug_log("PowerLossRecovery: Required placeholders not found in gcode file")
-                # Restore original file if modification failed
-                os.remove(input_file)
-                os.rename(backup_file, input_file)
-                return None
-                
             if self.debug_mode:
                 self._debug_log(f"PowerLossRecovery: Successfully created modified file: {input_file}")
                 self._debug_log(f"PowerLossRecovery: Original file backed up as: {backup_file}")
