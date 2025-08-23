@@ -572,7 +572,7 @@ class PowerLossRecovery:
                             return False, f"Subfield {subfield} in {field} has wrong type"
                     else:
                         if not isinstance(state[field][subfield], subtype):
-                            return False, f"Subfield {subfield} in {field} has wrong type")
+                            return False, f"Subfield {subfield} in {field} has wrong type"
         
         # Verify logical constraints
         if state['file_progress']['total_size'] < 0:
