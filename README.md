@@ -44,11 +44,6 @@ E) [Extensions]
 Соглашаемся с рисками (y).
 Отказываемся от создания файла-примера (n). 
 
-Обновляем KlipperScreen (только для серийных принтеров на RPICM4):
-```
-cd ~/KlipperScreen && git pull && git checkout Z-BoltUI3.1-Restore_Print && sudo systemctl restart KlipperScreen
-```
-
 ## Настройка конфигурационных файлов Dual
 1) Открываем файл homing.cfg из репозитория:
 Веб-интерфейс > Конфигурация > klipper-config > pfprs > homing.cfg
