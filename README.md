@@ -8,9 +8,15 @@ cd ~ && git clone https://github.com/Transistor427/PFPRS/ && sudo ln -s ~/PFPRS 
 ```
 
 Веб-интерфейс > Конфигурация > printer.cfg
+Для одноголового принтера:
 ```
 [include klipper-config/pfprs/pfprs.cfg]
 ```
+Для двухголового принтера:
+```
+[include klipper-config/pfprs/pfprs_dual.cfg]
+```
+
 ## Дополнительные действия
 Проверяем, что установлен правильный kiauh:
 ```
@@ -20,7 +26,7 @@ ls ~/kiauh-zb/
 
 ![изображение](https://github.com/user-attachments/assets/995b7dc1-649c-4e45-acb2-134fe3e76c1a)
 ```
-cd ~ && git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.1
+cd ~ && git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.2
 ```
 Снова проверяем правильность kiauh.
 Если такой, то продолжаем дальше:
@@ -32,8 +38,8 @@ cd ~ && git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.1
 ```
 Далее выбираем:
 ```
-4) [Advanced]
-8) [G-Code Shell Command]
+E) [Extensions]
+1) G-Code Shell Command
 ```
 Соглашаемся с рисками (y).
 Отказываемся от создания файла-примера (n). 
@@ -43,25 +49,19 @@ cd ~ && git clone https://github.com/Z-Bolt/kiauh-zb -b Z-BoltUI3.1
 cd ~/KlipperScreen && git pull && git checkout Z-BoltUI3.1-Restore_Print && sudo systemctl restart KlipperScreen
 ```
 
-## Настройка конфигурационных файлов
-Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro START_PRINT]
+## Настройка конфигурационных файлов Dual
+1) Открываем файл homing.cfg из репозитория:
+Веб-интерфейс > Конфигурация > klipper-config > pfprs > homing.cfg
 
-![изображение](https://github.com/user-attachments/assets/661d21c9-7a97-4ff7-a899-07218cf9e807)
+2) Копируем содержимое.
 
-Добавляем в самый конец стартового g-кода строчку:
-```
-SAVE_VARIABLE VARIABLE=was_interrupted VALUE=True
-```
+3) Открываем файл хоуминга принтера:
+Веб-интерфейс > Конфигурация > klipper-config > homing.cfg
 
-Веб-интерфейс > Конфигурация > klipper-config > gcode-macros.cfg > [gcode_macro END_PRINT]
-
-![изображение](https://github.com/user-attachments/assets/1285a067-926a-4fa8-86ad-836df7c23e1c)
-
-Добавляем в самое начало конечного g-кода строчку:
-```
-SAVE_VARIABLE VARIABLE=was_interrupted VALUE=False
-```
-
+4) Заменяем секцию homing_override ранее скопированным содержимым:
+<img width="1000" height="812" alt="изображение" src="https://github.com/user-attachments/assets/b7fbb30c-7f12-47c1-bb4c-9185a5d307a8" />
+5) Нажимаем "Сохранить и перезапустить" в верхнем правом углу страницы
+ 
 ## Настройка OrcaSlicer
 В слайсере в g-кодах принтера при смене слоев нужно добавить макрос `_LOG_Z Z=[layer_z]`:
 
