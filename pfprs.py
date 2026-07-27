@@ -110,14 +110,17 @@ class PFPRS:
         try:
             printing = self._is_printing()
             if printing and not self._print_was_active:
-                self.enabled = True
                 self._print_was_active = True
-                self._log('print started, state saving enabled')
+                # During restore setup (resuming=True) wait for PFPRS_ENABLE
+                # from _START_PRINT_RESTORE before saving again
+                if not self.resuming:
+                    self.enabled = True
+                    self._log('print started, state saving enabled')
             elif not printing and self._print_was_active:
                 self._print_was_active = False
-                if not self.resuming:
-                    self.enabled = False
-                    self._log('print finished, state saving disabled')
+                self.enabled = False
+                self.resuming = False
+                self._log('print finished, state saving disabled')
             if self.enabled and printing and not self.resuming:
                 state = self._collect_state()
                 if state is not None:
@@ -149,16 +152,26 @@ class PFPRS:
             gm = gcode_move.get_status(eventtime)
 
             filepath = sd.get('file_path') or ''
-            # Never treat restore.gcode as the source print
-            if filepath and os.path.basename(filepath) == self.restore_filename:
-                # Keep previously saved source file
-                prev = self._get_saved_var('pr_file', None)
-                if prev:
-                    filepath = prev.strip("'") if isinstance(prev, str) else prev
-
             filename = ps.get('filename') or ''
             file_position = int(sd.get('file_position', 0) or 0)
             file_size = int(sd.get('file_size', 0) or 0)
+
+            # While printing restore.gcode, map offset back to the original
+            # source so a second power loss can rebuild again correctly.
+            if filepath and os.path.basename(filepath) == self.restore_filename:
+                prev = self._get_saved_var('pr_file', None)
+                if prev:
+                    filepath = str(prev).strip().strip("'").strip('"')
+                payload_start = int(
+                    self._get_saved_var('pr_restore_payload_start', 0) or 0)
+                source_base = int(
+                    self._get_saved_var('pr_source_base', 0) or 0)
+                if file_position >= payload_start:
+                    file_position = source_base + (file_position - payload_start)
+                else:
+                    # Still in restore header / start macro — keep last source base
+                    file_position = source_base
+                filename = os.path.basename(filepath) if filepath else filename
 
             xyz = self._get_gcode_position(eventtime)
 
@@ -285,6 +298,7 @@ class PFPRS:
 
     cmd_PFPRS_ENABLE_help = 'Enable PFPRS state saving'
     def cmd_PFPRS_ENABLE(self, gcmd):
+        self.resuming = False
         self.enabled = True
         gcmd.respond_info('PFPRS enabled')
 
@@ -346,11 +360,14 @@ class PFPRS:
 
         context = self._scan_prefix_context(src, resume_pos)
         out_path = os.path.join(self.gcode_path, self.restore_filename)
-        self._write_restore_file(src, out_path, resume_pos, context)
         self.resuming = True
+        self.enabled = False
+        self._write_restore_file(src, out_path, resume_pos, context)
+        thumb_n = len(self._extract_thumbnails(src))
         gcmd.respond_info(
-            'PFPRS: wrote %s (offset=%d, tool=T%s, XY will be restored)' % (
-                self.restore_filename, resume_pos, context.get('tool', 0)))
+            'PFPRS: wrote %s (offset=%d, tool=T%s, thumbnails=%d)' % (
+                self.restore_filename, resume_pos,
+                context.get('tool', 0), thumb_n))
 
     def _resolve_source_file(self, gcmd):
         path = gcmd.get('GCODE_FILE', None)
@@ -434,6 +451,54 @@ class PFPRS:
             'fan_line': last_fan,
         }
 
+    def _extract_thumbnails(self, filepath):
+        """Copy OrcaSlicer / Prusa-style thumbnail comment blocks from source."""
+        blocks = []
+        in_thumbnail_block = False
+        in_thumbnail = False
+        current = []
+        # Thumbnails live in the file header; stop once executable gcode starts
+        max_header = 2 * 1024 * 1024
+        with open(filepath, 'rb') as f:
+            data = f.read(max_header)
+        for raw in data.splitlines(True):
+            line = raw.decode('utf-8', 'ignore')
+            stripped = line.strip()
+            upper = stripped.upper()
+
+            if upper == '; THUMBNAIL_BLOCK_START':
+                in_thumbnail_block = True
+                current = [raw]
+                continue
+            if in_thumbnail_block:
+                current.append(raw)
+                if upper == '; THUMBNAIL_BLOCK_END':
+                    blocks.append(b''.join(current))
+                    current = []
+                    in_thumbnail_block = False
+                continue
+
+            # Fallback: classic "; thumbnail begin" … "; thumbnail end"
+            if (not in_thumbnail and stripped.lower().startswith('; thumbnail begin')):
+                in_thumbnail = True
+                current = [raw]
+                continue
+            if in_thumbnail:
+                current.append(raw)
+                if stripped.lower().startswith('; thumbnail end'):
+                    blocks.append(b''.join(current))
+                    current = []
+                    in_thumbnail = False
+                continue
+
+            if upper == '; EXECUTABLE_BLOCK_START':
+                break
+            # Stop at first real gcode command in header scan
+            if stripped and not stripped.startswith(';'):
+                break
+
+        return blocks
+
     def _write_restore_file(self, src, out_path, resume_pos, context):
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         header = [
@@ -445,16 +510,27 @@ class PFPRS:
             self.restart_macro,
             'G90' if context.get('absolute_coord', True) else 'G91',
             'M82' if context.get('absolute_extrude', False) else 'M83',
-            'T%d' % (int(context.get('tool', 0)),),
         ]
+        # Tool select only for dual / multi-extruder printers
+        if self.dual:
+            header.append('T%d' % (int(context.get('tool', 0)),))
         if context.get('fan_line'):
             header.append(context['fan_line'])
         header.append('G92 E0')
         header.append('; --- resumed gcode ---')
 
+        thumbnails = self._extract_thumbnails(src)
+
         with open(src, 'rb') as infile, open(out_path, 'wb') as outfile:
+            for block in thumbnails:
+                outfile.write(block)
+                if not block.endswith(b'\n'):
+                    outfile.write(b'\n')
+            if thumbnails:
+                outfile.write(b'\n')
             for line in header:
                 outfile.write((line + '\n').encode('utf-8'))
+            payload_start = outfile.tell()
             if resume_pos <= 0:
                 infile.seek(0)
             else:
@@ -467,3 +543,9 @@ class PFPRS:
                 if not chunk:
                     break
                 outfile.write(chunk)
+
+        # Map restore.gcode offsets back to the original source on later saves
+        self._save_variable('pr_restore_payload_start', int(payload_start))
+        self._save_variable('pr_source_base', int(resume_pos))
+        if src:
+            self._save_variable('pr_file', src)
