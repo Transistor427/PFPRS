@@ -1,9 +1,0 @@
-#!/bin/bash
-SD_PATH=~/printer_data/gcodes/
-FILE_NAME=restore.gcode
-
-cat ${2} > /tmp/tempF.$$
-cat /tmp/tempF.$$ | sed -e '1,/;Z:'${1}'/ d' | > ${SD_PATH}/${FILE_NAME}
-echo '_START_PRINT_RESTORE' >> ${SD_PATH}/${FILE_NAME}
-tac /tmp/tempF.$$ | sed -e '/ Z'${1}'[^0-9]*$/q' | tac >> ${SD_PATH}/${FILE_NAME}   
-rm /tmp/tempF.$$
