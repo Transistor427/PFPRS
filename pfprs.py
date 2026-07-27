@@ -1,6 +1,9 @@
 import logging
 import os
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections import deque
 
 
@@ -33,6 +36,8 @@ class PFPRS:
             'restore_filename', self.RESTORE_NAME)
         self.restart_macro = config.get(
             'restart_macro', '_START_PRINT_RESTORE')
+        self.moonraker_url = config.get(
+            'moonraker_url', 'http://127.0.0.1:7125').rstrip('/')
 
         self.save_variables = None
         self.toolhead = None
@@ -363,6 +368,7 @@ class PFPRS:
         self.resuming = True
         self.enabled = False
         self._write_restore_file(src, out_path, resume_pos, context)
+        self._moonraker_metascan(self.restore_filename)
         thumb_n = len(self._extract_thumbnails(src))
         gcmd.respond_info(
             'PFPRS: wrote %s (offset=%d, tool=T%s, thumbnails=%d)' % (
@@ -454,10 +460,11 @@ class PFPRS:
     def _extract_thumbnails(self, filepath):
         """Copy OrcaSlicer / Prusa-style thumbnail comment blocks from source."""
         blocks = []
+        header_block = None
+        in_header_block = False
         in_thumbnail_block = False
         in_thumbnail = False
         current = []
-        # Thumbnails live in the file header; stop once executable gcode starts
         max_header = 2 * 1024 * 1024
         with open(filepath, 'rb') as f:
             data = f.read(max_header)
@@ -465,6 +472,18 @@ class PFPRS:
             line = raw.decode('utf-8', 'ignore')
             stripped = line.strip()
             upper = stripped.upper()
+
+            if upper == '; HEADER_BLOCK_START':
+                in_header_block = True
+                current = [raw]
+                continue
+            if in_header_block:
+                current.append(raw)
+                if upper == '; HEADER_BLOCK_END':
+                    header_block = b''.join(current)
+                    current = []
+                    in_header_block = False
+                continue
 
             if upper == '; THUMBNAIL_BLOCK_START':
                 in_thumbnail_block = True
@@ -479,7 +498,8 @@ class PFPRS:
                 continue
 
             # Fallback: classic "; thumbnail begin" … "; thumbnail end"
-            if (not in_thumbnail and stripped.lower().startswith('; thumbnail begin')):
+            if (not in_thumbnail
+                    and stripped.lower().startswith('; thumbnail begin')):
                 in_thumbnail = True
                 current = [raw]
                 continue
@@ -493,11 +513,31 @@ class PFPRS:
 
             if upper == '; EXECUTABLE_BLOCK_START':
                 break
-            # Stop at first real gcode command in header scan
             if stripped and not stripped.startswith(';'):
                 break
 
+        if header_block:
+            return [header_block] + blocks
         return blocks
+
+    def _moonraker_metascan(self, filename):
+        """Ask Moonraker to re-parse metadata/thumbnails for a gcode file."""
+        if not self.moonraker_url:
+            return
+        try:
+            quoted = urllib.parse.quote(filename)
+            url = '%s/server/files/metascan?filename=%s' % (
+                self.moonraker_url, quoted)
+            req = urllib.request.Request(url, data=b'', method='POST')
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                body = resp.read()
+            self._log('Moonraker metascan ok for %s (%s)' % (
+                filename, body[:120]))
+        except Exception as e:
+            logging.warning(
+                'PFPRS: Moonraker metascan failed for %s: %s' % (
+                    filename, e))
+            self._log('Moonraker metascan failed: %s' % (e,))
 
     def _write_restore_file(self, src, out_path, resume_pos, context):
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
