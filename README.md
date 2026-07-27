@@ -14,24 +14,24 @@ cd ~ && git clone -b v4 https://github.com/Transistor427/PFPRS/
 sudo ln -sf ~/PFPRS/pfprs.py ~/klipper/klippy/extras/pfprs.py
 
 # Конфиг (один из двух)
-cp ~/PFPRS/pfprs.cfg ~/printer_data/config/pfprs.cfg
-# cp ~/PFPRS/pfprs_dual.cfg ~/printer_data/config/pfprs_dual.cfg
+cp ~/PFPRS/pfprs.cfg ~/printer_data/config/klipper-config/pfprs.cfg
+# cp ~/PFPRS/pfprs_dual.cfg ~/printer_data/config/klipper-config/pfprs_dual.cfg
 
 sudo systemctl restart klipper
 ```
 
 В `printer.cfg`:
 ```
-[include pfprs.cfg]
+[include klipper-config/pfprs.cfg]
 ```
 или
 ```
-[include pfprs_dual.cfg]
+[include klipper-config/pfprs_dual.cfg]
 ```
 
 Нужен `[save_variables]` (в dual-конфиге уже есть).
 
-**Dual:** скопируйте секцию `[homing_override]` из `~/PFPRS/homing.cfg` в `homing.cfg` принтера.
+**Dual:** используйте секцию `[homing_override]` из `~/PFPRS/homing.cfg` в `homing.cfg` принтера, чтобы иметь возможность корректно парковать оси.
 
 ## Использование
 
@@ -56,8 +56,7 @@ _LOG_Z Z=[layer_z]
 
 ```bash
 sudo rm -f ~/klipper/klippy/extras/pfprs.py
-rm -f ~/printer_data/config/pfprs.cfg ~/printer_data/config/pfprs_dual.cfg
+rm -f ~/printer_data/config/klipper-config/pfprs.cfg ~/printer_data/config/klipper-config/pfprs_dual.cfg
 sudo rm -rf ~/PFPRS
 ```
-
 Уберите `[include …]` из `printer.cfg` и перезапустите Klipper.
