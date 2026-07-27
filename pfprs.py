@@ -310,7 +310,7 @@ class PFPRS:
     cmd_PFPRS_SAVE_STATE_help = 'Save current print state (gcode XY before skew)'
     def cmd_PFPRS_SAVE_STATE(self, gcmd):
         if self.resuming:
-            gcmd.respond_info('PFPRS: skip save during resume')
+            self._log('skip save during resume')
             return
         state = self._collect_state()
         if state is None:
@@ -320,8 +320,8 @@ class PFPRS:
             state['z'] = round(float(z_override), 3)
         self.state_history.append(state)
         self._persist_state(state)
-        gcmd.respond_info(
-            'PFPRS: state saved X=%.3f Y=%.3f Z=%.3f' % (
+        self._log(
+            'state saved X=%.3f Y=%.3f Z=%.3f' % (
                 state['x'], state['y'], state['z']))
 
     cmd_PFPRS_QUERY_STATE_help = 'Show last saved PFPRS state'
