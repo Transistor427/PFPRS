@@ -18,10 +18,15 @@
 
 ```bash
 cd ~ && git clone -b v4 https://github.com/Transistor427/PFPRS/
-sudo ln -s ~/PFPRS ~/printer_data/config/klipper-config/pfprs
 
-# Подключить Python-модуль в Klipper extras
+# Python-модуль в Klipper extras
 sudo ln -sf ~/PFPRS/pfprs.py ~/klipper/klippy/extras/pfprs.py
+
+# Конфиги — копируем нужный файл в config
+# Одноголовый:
+cp ~/PFPRS/pfprs.cfg ~/printer_data/config/pfprs.cfg
+# Двухголовый (вместо предыдущей строки):
+# cp ~/PFPRS/pfprs_dual.cfg ~/printer_data/config/pfprs_dual.cfg
 
 sudo systemctl restart klipper
 ```
@@ -30,12 +35,12 @@ sudo systemctl restart klipper
 
 Для одноголового принтера:
 ```
-[include klipper-config/pfprs/pfprs.cfg]
+[include pfprs.cfg]
 ```
 
 Для двухголового принтера:
 ```
-[include klipper-config/pfprs/pfprs_dual.cfg]
+[include pfprs_dual.cfg]
 ```
 
 Также нужен `[save_variables]` (в `pfprs_dual.cfg` уже есть; для single добавьте в `printer.cfg`, если его ещё нет):
@@ -50,9 +55,9 @@ filename: ~/printer_data/config/variables.cfg
 
 Логику аварийной парковки XY **нельзя** переносить в Python — она остаётся в конфиге принтера.
 
-1. Откройте `homing.cfg` из репозитория PFPRS  
+1. Откройте `~/PFPRS/homing.cfg`  
 2. Скопируйте содержимое  
-3. В `klipper-config/homing.cfg` принтера замените секцию `[homing_override]` скопированным содержимым  
+3. В `homing.cfg` принтера (`~/printer_data/config/...`) замените секцию `[homing_override]` скопированным содержимым  
 4. «Сохранить и перезапустить»
 
 Файл задаёт `emergency_homing` → `HOMING_EMERGENCY` (Y затем X) при восстановлении dual-печати.
@@ -77,7 +82,7 @@ _LOG_Z Z=[layer_z]
 | `PFPRS_BUILD_RESTORE` | Собрать `restore.gcode` с сохранённой позиции |
 | `PFPRS_QUERY_STATE` | Показать сохранённые данные |
 | `PFPRS_ENABLE` / `PFPRS_DISABLE` | Вкл/выкл автосохранение |
-| `PFPRS_CLEAR` | Сбросить флаг прерывания |
+| `PFPRS_CLEAR` | Очистить историю состояний в памяти |
 
 Во время печати модуль сам включает сохранение (интервал `save_interval`, по умолчанию 15 с) и дополнительно сохраняет на каждом `_LOG_Z`.
 
@@ -133,14 +138,15 @@ v4 сравнивает Z как float и опирается на `file_position
 
 ```bash
 sudo rm -f ~/klipper/klippy/extras/pfprs.py
-sudo rm -rf ~/printer_data/config/klipper-config/pfprs
+rm -f ~/printer_data/config/pfprs.cfg ~/printer_data/config/pfprs_dual.cfg
 sudo rm -rf ~/PFPRS
 ```
 
-Удалите `[include ... pfprs.cfg]` / `pfprs_dual.cfg` из `printer.cfg` и перезапустите Klipper.
+Удалите `[include pfprs.cfg]` / `[include pfprs_dual.cfg]` из `printer.cfg` и перезапустите Klipper.
 
 ## Обновление
 
-1. Удалите старую установку (в т.ч. symlink `pfprs.py` в extras)  
-2. Установите ветку `v4` заново по инструкции выше  
-3. Убедитесь, что в конфиге есть секция `[pfprs]`, а shell-command'ы удалены  
+1. Обновите репозиторий: `cd ~/PFPRS && git pull`
+2. Заново скопируйте нужный конфиг (`pfprs.cfg` или `pfprs_dual.cfg`) в `~/printer_data/config/`
+3. Обновите symlink модуля: `sudo ln -sf ~/PFPRS/pfprs.py ~/klipper/klippy/extras/pfprs.py`
+4. Перезапустите Klipper
