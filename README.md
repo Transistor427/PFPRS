@@ -24,9 +24,9 @@ sudo ln -sf ~/PFPRS/pfprs.py ~/klipper/klippy/extras/pfprs.py
 
 # Конфиги — копируем нужный файл в config
 # Одноголовый:
-cp ~/PFPRS/pfprs.cfg ~/printer_data/config/pfprs.cfg
+cp ~/PFPRS/pfprs.cfg ~/printer_data/config/klipper-config/pfprs.cfg
 # Двухголовый (вместо предыдущей строки):
-# cp ~/PFPRS/pfprs_dual.cfg ~/printer_data/config/pfprs_dual.cfg
+# cp ~/PFPRS/pfprs_dual.cfg ~/printer_data/config/klipper-config/pfprs_dual.cfg
 
 sudo systemctl restart klipper
 ```
