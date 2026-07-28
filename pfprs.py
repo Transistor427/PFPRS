@@ -365,15 +365,17 @@ class PFPRS:
 
         context = self._scan_prefix_context(src, resume_pos)
         out_path = os.path.join(self.gcode_path, self.restore_filename)
+        skip_start = gcmd.get_int('SKIP_START', 0)
         self.resuming = True
         self.enabled = False
-        self._write_restore_file(src, out_path, resume_pos, context)
+        self._write_restore_file(
+            src, out_path, resume_pos, context, skip_start=bool(skip_start))
         self._moonraker_metascan(self.restore_filename)
         thumb_n = len(self._extract_thumbnails(src))
         gcmd.respond_info(
-            'PFPRS: wrote %s (offset=%d, tool=T%s, thumbnails=%d)' % (
+            'PFPRS: wrote %s (offset=%d, tool=T%s, thumbnails=%d, skip_start=%d)' % (
                 self.restore_filename, resume_pos,
-                context.get('tool', 0), thumb_n))
+                context.get('tool', 0), thumb_n, skip_start))
 
     def _resolve_source_file(self, gcmd):
         path = gcmd.get('GCODE_FILE', None)
@@ -539,7 +541,8 @@ class PFPRS:
                     filename, e))
             self._log('Moonraker metascan failed: %s' % (e,))
 
-    def _write_restore_file(self, src, out_path, resume_pos, context):
+    def _write_restore_file(self, src, out_path, resume_pos, context,
+                            skip_start=False):
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         header = [
             '; PFPRS restore file',
@@ -547,10 +550,13 @@ class PFPRS:
             '; resume_byte: %d' % (resume_pos,),
             '; XY restored via %s using gcode_position (pre-skew)' % (
                 self.restart_macro,),
-            self.restart_macro,
+        ]
+        if not skip_start:
+            header.append(self.restart_macro)
+        header.extend([
             'G90' if context.get('absolute_coord', True) else 'G91',
             'M82' if context.get('absolute_extrude', False) else 'M83',
-        ]
+        ])
         # Tool select only for dual / multi-extruder printers
         if self.dual:
             header.append('T%d' % (int(context.get('tool', 0)),))
