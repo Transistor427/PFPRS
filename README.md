@@ -50,7 +50,7 @@ cp ~/PFPRS/pfprs.cfg ~/printer_data/config/klipper-config/pfprs.cfg
 [include klipper-config/pfprs.cfg]
 ```
 
-Дальше добавьте вызовы в макросы и парковку — раздел [Что добавить в конфиг принтера](#что-добавить-в-конфиг-принтера). Затем:
+Парковка Z уже входит в `pfprs.cfg`. Дальше добавьте вызовы в макросы окончания и отмены — раздел [Что добавить в конфиг принтера](#что-добавить-в-конфиг-принтера). Затем:
 
 ```bash
 sudo systemctl restart klipper
@@ -122,35 +122,11 @@ PFPRS_PRINT_DONE
 
 ### Парковка оси Z
 
-Пока точка восстановления действительна, обычный `G28` не должен опускать Z в деталь. Флаг `printer.pfprs.emergency_homing` включается при загрузке с живой точкой и на время подготовки возобновления.
+Пока точка восстановления действительна, `G28` не должен опускать Z в деталь. Флаг `printer.pfprs.emergency_homing` включается при загрузке с живой точкой и на время подготовки возобновления. Снимается при старте продолжения, при `PFPRS_DISCARD`, при `PFPRS_ABORT_RESUME` и по таймауту `resume_timeout`. Вручную: `PFPRS_SET_EMERGENCY_HOMING VALUE=0`.
 
-**В конфиге нет `[safe_z_home]`.** Перенесите секцию `[homing_override]` из `homing.cfg`. В ветке `else` стоит вызов макроса `HOMING` — это ваша обычная парковка. Если макрос называется иначе, подставьте его. Если `[homing_override]` уже есть, не заменяйте секцию второй копией: Klipper её не примет. Добавьте в существующую ветку проверку `printer.pfprs.emergency_homing` по образцу `homing.cfg`. Внутри override повторный `G28 X` / `G28 Y` выполняет настоящую парковку оси. Голое имя оси в вызов своего макроса передавать нельзя: для Klipper это не пара `key=value`.
+В одноголовом `pfprs.cfg` это уже делает макрос `G28`. Он нужен, потому что на таком принтере обычно есть `[safe_z_home]`, а вместе с `[homing_override]` Klipper эту секцию не загружает. Пока флага нет, команда выполняется как раньше: макрос передаёт её в `G28.1`, и отрабатывает прежняя парковка, включая `safe_z_home`. Отдельный файл для этого не подключается.
 
-**В конфиге есть `[safe_z_home]`.** Секцию `[homing_override]` подключать нельзя: Klipper запрещает обе сразу. Оставьте `safe_z_home` и оберните `G28`. Имя в `rename_existing` обязано быть обычной G-командой (буква и число), например `G28.1`.
-
-```
-[gcode_macro G28]
-description: Парковка. Ось Z блокируется, пока PFPRS держит аварийный режим
-rename_existing: G28.1
-gcode:
-    {% set home_all = not ('X' in params or 'Y' in params or 'Z' in params) %}
-    {% if printer.pfprs.emergency_homing %}
-        RESPOND PREFIX="[!]" MSG="PFPRS: аварийная парковка, ось Z не паркуется"
-        {% if home_all or 'Y' in params %}
-            G28.1 Y
-        {% endif %}
-        {% if home_all or 'X' in params %}
-            G28.1 X
-        {% endif %}
-        {% if 'Z' in params and not home_all %}
-            { action_raise_error("PFPRS: парковка Z заблокирована. Снимите блокировку командой PFPRS_SET_EMERGENCY_HOMING VALUE=0") }
-        {% endif %}
-    {% else %}
-        G28.1{% if rawparams %} {rawparams}{% endif %}
-    {% endif %}
-```
-
-Снять блокировку вручную: `PFPRS_SET_EMERGENCY_HOMING VALUE=0`. Она сама снимается при старте продолжения, при `PFPRS_DISCARD`, при `PFPRS_ABORT_RESUME` и по таймауту `resume_timeout`.
+`homing.cfg` остаётся для принтера без `[safe_z_home]`, у которого обычный `G28` — это свой макрос `HOMING`. Туда переносится секция `[homing_override]`. Вместе с макросом `G28` из `pfprs.cfg` её не включают.
 
 ### Слайсер
 
@@ -327,7 +303,7 @@ rm -rf ~/printer_data/pfprs ~/PFPRS
 
 Двухголовый — тот же набор, вместо `pfprs.cfg` удаляется `pfprs_dual.cfg`.
 
-Из `printer.cfg` уберите строку `[include …]` этого файла, обёртку `G28` или секцию `[homing_override]`, которую добавляли для PFPRS, и вызовы `PFPRS_PRINT_DONE`, `PFPRS_HOLD`, `PFPRS_RELEASE`. Если `[force_move]` нужен другим макросам, секцию оставьте. Перезапустите Klipper:
+Из `printer.cfg` уберите строку `[include …]` этого файла. Если подключали `homing.cfg`, уберите и его секцию `[homing_override]`. Уберите вызовы `PFPRS_PRINT_DONE`, `PFPRS_HOLD`, `PFPRS_RELEASE`. Если `[force_move]` нужен другим макросам, секцию оставьте. Перезапустите Klipper:
 
 ```bash
 sudo systemctl restart klipper
