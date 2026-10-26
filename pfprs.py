@@ -16,6 +16,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from collections import deque
 
@@ -117,6 +118,76 @@ class AtomicStore:
             os.close(fd)
 
 
+class StoreWriter:
+    """Фоновый поток, через который идут все записи AtomicStore.
+
+    fsync на SD-карте занимает сотни миллисекунд. В колбэке реактора это
+    останавливает отправку шагов в MCU, и если буфер в этот момент пуст
+    (пробы z_tilt, bed_mesh), MCU падает с «Timer too close». Поэтому реактор
+    только кладёт снимок в очередь, а пишет и fsync-ает этот поток.
+
+    Очередь глубиной в один снимок: если поток не успел записать предыдущий,
+    его заменяет более свежий. Порядок поколений сохраняется - seq и слот
+    назначает AtomicStore.save() уже в этом потоке.
+    """
+
+    def __init__(self, store):
+        self.store = store
+        self.cond = threading.Condition()
+        self.pending = None
+        self.busy = False
+        self.stopping = False
+        self.thread = threading.Thread(target=self._run, name='pfprs-writer')
+        self.thread.daemon = True
+        self.thread.start()
+
+    def submit(self, payload):
+        with self.cond:
+            self.pending = payload
+            self.cond.notify_all()
+
+    def flush(self, timeout):
+        deadline = time.monotonic() + timeout
+        with self.cond:
+            while self.pending is not None or self.busy:
+                left = deadline - time.monotonic()
+                if left <= 0.:
+                    return False
+                self.cond.wait(left)
+        return True
+
+    def stop(self, timeout=5.):
+        self.flush(timeout)
+        with self.cond:
+            self.stopping = True
+            self.cond.notify_all()
+        self.thread.join(timeout)
+
+    def _run(self):
+        while True:
+            with self.cond:
+                while self.pending is None and not self.stopping:
+                    self.cond.wait()
+                if self.pending is None:
+                    return
+                payload = self.pending
+                self.pending = None
+                self.busy = True
+            try:
+                slot = self.store.next_slot
+                self.store.save(payload)
+                logging.info(
+                    'PFPRS: state written slot%d seq=%d pos=%s valid=%s',
+                    slot, self.store.seq, payload.get('file_position'),
+                    payload.get('valid'))
+            except Exception:
+                logging.exception('PFPRS: failed to persist state')
+            finally:
+                with self.cond:
+                    self.busy = False
+                    self.cond.notify_all()
+
+
 class PFPRS:
     def __init__(self, config):
         self.printer = config.get_printer()
@@ -136,6 +207,13 @@ class PFPRS:
         # безопаснее пропуска материала.
         self.resume_lag = config.getfloat(
             'resume_lag', 2., minval=0., maxval=60.)
+        # Пока в планировщике шагов меньше save_min_buffer секунд движения
+        # (пробы, парковка, ожидание нагрева), плановое сохранение
+        # откладывается - но не дольше save_max_defer секунд.
+        self.save_min_buffer = config.getfloat(
+            'save_min_buffer', .5, minval=0., maxval=5.)
+        self.save_max_defer = config.getfloat(
+            'save_max_defer', 30., minval=0., maxval=600.)
         self.resume_timeout = config.getfloat(
             'resume_timeout', 1800., minval=60., maxval=7200.)
 
@@ -146,6 +224,8 @@ class PFPRS:
             config.get('state_path', '~/printer_data/pfprs/state'))
         self._ensure_dir(os.path.dirname(state_path))
         self.store = AtomicStore(state_path)
+        self.writer = None
+        self.last_written_key = None
 
         # --- имена макросов и объектов ---
         self.restart_macro = config.get('restart_macro', '_START_PRINT_RESTORE')
@@ -229,6 +309,7 @@ class PFPRS:
         # сделанный в такой момент, указывает на парковку и невосстановим.
         self.hold = 0
         self.last_persist = 0.
+        self.defer_since = 0.
         self.timer = None
         self.recovery_timer = None
         self.recovery_available = False
@@ -333,6 +414,8 @@ class PFPRS:
                                              self.auto_resume_default))
             self._log('state loaded (seq=%s, valid=%s)' % (
                 data.get('seq'), data.get('valid')))
+        # Поток запускается после load(): до этого seq и слот не известны.
+        self.writer = StoreWriter(self.store)
 
     def _handle_ready(self):
         self.timer = self.reactor.register_timer(
@@ -353,6 +436,11 @@ class PFPRS:
             if timer is not None:
                 self.reactor.unregister_timer(timer)
                 setattr(self, attr, None)
+        # RESTART пересоздаёт объекты в том же процессе: поток нужно
+        # дописать и остановить, иначе останется висеть старый.
+        if self.writer is not None:
+            self.writer.stop()
+            self.writer = None
 
     def _handle_request_restart(self, print_time):
         if self.enabled:
@@ -568,17 +656,25 @@ class PFPRS:
         payload = dict(data)
         payload['version'] = STATE_VERSION
         payload['auto_resume'] = bool(self.auto_resume)
-        slot = self.store.next_slot
-        try:
-            self.store.save(payload)
-        except Exception:
-            logging.exception('PFPRS: failed to persist state')
+        if self.writer is None:
+            logging.error('PFPRS: writer is not running, state not persisted')
             return False
+        self.writer.submit(payload)
         self.state = payload
-        logging.info('PFPRS: state written slot%d seq=%d pos=%s valid=%s',
-                     slot, self.store.seq, payload.get('file_position'),
-                     payload.get('valid'))
+        self.last_written_key = self._snapshot_key(payload)
         return True
+
+    @staticmethod
+    def _snapshot_key(data):
+        """Содержимое точки без полей, которые меняются сами по себе.
+
+        Пока стартовый макрос греет, выравнивает портал и снимает сетку,
+        файл стоит на месте - переписывать ту же точку незачем.
+        """
+        return tuple(sorted(
+            (k, v) for k, v in data.items()
+            if k not in ('saved_at', 'seq', 'version')
+            and not k.endswith('_actual')))
 
     def _persist(self, snap):
         if not self._plausible(snap):
@@ -589,12 +685,31 @@ class PFPRS:
         data['blocked'] = False
         data['shutdown_reason'] = ''
         data['invalid_reason'] = ''
+        data['auto_resume'] = bool(self.auto_resume)
+        now = self.reactor.monotonic()
+        if self._snapshot_key(data) == self.last_written_key:
+            self.last_persist = now
+            return
         data['saved_at'] = time.time()
         if self._write(data):
-            self.last_persist = self.reactor.monotonic()
+            self.last_persist = now
             if self.debug_mode:
                 self._log('saved X=%.2f Y=%.2f Z=%.2f pos=%d' % (
                     data['x'], data['y'], data['z'], data['file_position']))
+
+    def _motion_buffer(self, eventtime):
+        """Сколько секунд движения уже отправлено в MCU сверх текущего
+        момента. Около нуля - во время проб и парковки, когда шаги идут
+        короткими порциями и любая пауза реактора даёт «Timer too close»."""
+        th = self._lookup('toolhead')
+        if th is None:
+            return None
+        try:
+            status = th.get_status(eventtime)
+            return (float(status['print_time'])
+                    - float(status['estimated_print_time']))
+        except Exception:
+            return None
 
     def _invalidate(self, reason):
         if not self.state or not self.state.get('valid'):
@@ -637,6 +752,7 @@ class PFPRS:
         if active and not self.print_active:
             self.print_active = True
             self.samples.clear()
+            self.defer_since = 0.
             if not self.resuming:
                 self.enabled = True
                 self.emergency_homing = False
@@ -670,10 +786,18 @@ class PFPRS:
         self.samples.append((eventtime, snap))
         while len(self.samples) > self.max_samples:
             self.samples.popleft()
-        if eventtime - self.last_persist >= self.save_interval:
-            lagged = self._pick_lagged(eventtime)
-            if lagged is not None:
-                self._persist(lagged)
+        if eventtime - self.last_persist < self.save_interval:
+            return
+        buf = self._motion_buffer(eventtime)
+        if buf is not None and buf < self.save_min_buffer:
+            if not self.defer_since:
+                self.defer_since = eventtime
+            if eventtime - self.defer_since < self.save_max_defer:
+                return
+        self.defer_since = 0.
+        lagged = self._pick_lagged(eventtime)
+        if lagged is not None:
+            self._persist(lagged)
 
     # ------------------------------------------------------------------
     # Проверка источника и позиции
